@@ -8,11 +8,11 @@ using namespace std;
 // 格式转换， 复用/解复用
 // FFmpeg操作数据流程： 解复用-->获取流avstream-->读数据包avformat-->释放资源
 
-const char* VIDEO_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resouce/big_buck_bunny.mp4";
+const char* VIDEO_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resource/big_buck_bunny.mp4";
 
-const char* AUDIO_OUTPUT_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resouce/out/extra_output.aac";
-const char* VIDEO_OUTPUT_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resouce/out/extra_output.264";
-const char* FLV_OUTPUT_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resouce/out/extra_output.flv";
+const char* AUDIO_OUTPUT_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resource/out/extra_output.aac";
+const char* VIDEO_OUTPUT_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resource/out/extra_output.264";
+const char* FLV_OUTPUT_PATH = "/Users/hengfeng/workspace/C_Cpp/CLion/ffmpeg_learning/resource/out/extra_output.flv";
 
 #define ADTS_HEADER_LEN  7;
 
@@ -185,7 +185,7 @@ static int alloc_and_copy(AVPacket *out,
                           const uint8_t *in, uint32_t in_size)
 {
     uint32_t offset         = out->size;
-    uint8_t nal_header_size = offset ? 3 : 4; // 4 sps PPS个字节00 00 00 01， 如果非sps/PPS 3个字节00 00 01
+    uint8_t nal_header_size = offset ? 3 : 4; // 4 sps PPS个字节00 00 00 01， 如果非sps/PPS 3个字节00 00 01; 都设置成00 00 00 01也是可以的
     int err;
 
     // 对之前分配的packet进行扩容
@@ -194,8 +194,11 @@ static int alloc_and_copy(AVPacket *out,
         return err;
 
     if (sps_pps) // 如果带有sps pps
-        memcpy(out->data + offset, sps_pps, sps_pps_size);
-    memcpy(out->data + sps_pps_size + nal_header_size + offset, in, in_size);
+        memcpy(out->data + offset, sps_pps, sps_pps_size); // 写sps pps
+
+    memcpy(out->data + sps_pps_size + nal_header_size + offset, in, in_size); // 写入原始数据
+
+    //
     if (!offset) {
         AV_WB32(out->data + sps_pps_size, 1); // 00 00 00 01
     } else {
@@ -215,7 +218,7 @@ int h264_extradata_to_annexb(const uint8_t *codec_extradata, const int codec_ext
             sps_seen                   = 0, pps_seen = 0, sps_offset = 0, pps_offset = 0;
     const uint8_t *extradata            = codec_extradata + 4; // 跳过前4个无用数据
     static const uint8_t nalu_header[4] = { 0, 0, 0, 1 };
-    int length_size = (*extradata++ & 0x3) + 1; // retrieve length coded size, 用于指示表示编码数据长度所需字节数
+    int length_size = (*extradata++ & 0x3) + 1; // retrieve length coded size, 用于指示表示编码数据长度所需字节数， 取2位
 
     sps_offset = pps_offset = -1;
 
@@ -228,6 +231,7 @@ int h264_extradata_to_annexb(const uint8_t *codec_extradata, const int codec_ext
         sps_seen = 1;
     }
 
+    // 遍历每个pps 和sps
     while (unit_nb--) {
         int err;
 
@@ -284,10 +288,16 @@ int h264_extradata_to_annexb(const uint8_t *codec_extradata, const int codec_ext
 /**
  * 设置start code和设置sps/pps
  * @param fmt_ctx
- * @param in  传入的bao
+ * @param in  传入的压缩的帧数据
  * @param dst_fd
  * @return
  */
+//总的来说H264的码流的打包方式有两种,一种为annex-b byte stream format的格式，
+// 这个是绝大部分编码器的默认输出格式，就是每个帧的开头的3~4个字节是H264的start_code,0x00000001或者0x000001。
+
+//另一种是原始的NAL打包格式，就是开始的若干字节（1，2，4字节）是NAL的长度，
+// 而不是start_code,此时必须借助某个全局的数据来获得编码器的profile,level,PPS,SPS等信息才可以解码。
+
 int h264_mp4toannexb(AVFormatContext *fmt_ctx, AVPacket *in, FILE *dst_fd)
 {
 
@@ -295,31 +305,32 @@ int h264_mp4toannexb(AVFormatContext *fmt_ctx, AVPacket *in, FILE *dst_fd)
     AVPacket spspps_pkt;
 
     int len;
-    uint8_t unit_type;
-    int32_t nal_size;
+    uint8_t unit_type; // 一个字节，表示NALU的类型
+    int32_t nal_size; // NALU的大小
     uint32_t cumul_size    = 0;
     const uint8_t *buf;
     const uint8_t *buf_end;
     int            buf_size;
     int ret = 0, i;
 
-    out = av_packet_alloc();
 
-    buf      = in->data;
-    buf_size = in->size;
+    out = av_packet_alloc(); // 分配一个新的AVpacket
+
+    buf      = in->data; // 数据包起始
+    buf_size = in->size; // 数据包的到大小
     buf_end  = in->data + in->size; // 数据结尾地址
 
     do {
         ret= AVERROR(EINVAL);
-        if (buf + 4 /*s->length_size*/ > buf_end)
+        if (buf + 4 /*s->length_size*/ > buf_end) // 如果小于4个字节数据，就退出
             goto fail;
 
-        // AVPackage有可能包含一帧或者多帧，每一帧开头4个字节表示帧的大小，这里nal_size表示获取的一帧大小
+        // AVPackage前4个字节，是表示h264帧的字节大小---NALU打包
         for (nal_size = 0, i = 0; i<4/*s->length_size*/; i++)
             nal_size = (nal_size << 8) | buf[i];
 
-        buf += 4; /*s->length_size;*/
-        unit_type = *buf & 0x1f;  // NAL单元的类型，比如关键帧等
+        buf += 4; /*s->length_size;*/  // 这里开始就是实际的帧数据--跳过前面4个自己
+        unit_type = *buf & 0x1f;  // NAL单元的类型，比如关键帧等 ， 5关键字， 7pps, 8 sps等
 
         if (nal_size > buf_end - buf || nal_size < 0)
             goto fail;
@@ -359,12 +370,12 @@ int h264_mp4toannexb(AVFormatContext *fmt_ctx, AVPacket *in, FILE *dst_fd)
         /* prepend only to the first type 5 NAL unit of an IDR picture, if no sps/pps are already present */
         if (/*s->new_idr && */unit_type == 5 /*&& !s->idr_sps_seen && !s->idr_pps_seen*/) { // unit_type = 5表示一个关键帧
 
-            // 从扩展数据中获取pps和sps
+            // 从扩展数据中获取pps和sps , 关键帧前面一定有sps, pps
             h264_extradata_to_annexb( fmt_ctx->streams[in->stream_index]->codec->extradata,
                                       fmt_ctx->streams[in->stream_index]->codec->extradata_size,
                                       &spspps_pkt,
                                       AV_INPUT_BUFFER_PADDING_SIZE);
-            // 增加特征码
+            // 增加特征码--就是start code
             if ((ret=alloc_and_copy(out,
                                     spspps_pkt.data, spspps_pkt.size,
                                     buf, nal_size)) < 0)
@@ -422,6 +433,8 @@ int h264_mp4toannexb(AVFormatContext *fmt_ctx, AVPacket *in, FILE *dst_fd)
 
 
 // 抽取视频流
+// 对于视频来说， AVPackage就是一帧数据
+// 而对于音频来说，AVPackage可能有多帧
 int media_extra_video(const char* src_url, const char* dst_url) {
     int ret = 0;
     FILE* dst_fd = NULL;
@@ -468,9 +481,10 @@ int media_extra_video(const char* src_url, const char* dst_url) {
     pkt.data = NULL;
     pkt.size = 0;
 
-    while(av_read_frame(fmt_ctx, &pkt) >= 0) {
+    while(av_read_frame(fmt_ctx, &pkt) >= 0) { // 读取一帧数据，MP4中的帧的数据包括H264 NALU头？
         // 音频流
         if (pkt.stream_index == video_index) {
+            // 设置start code和sps, pps
             h264_mp4toannexb(fmt_ctx, &pkt, dst_fd);
         }
 
@@ -485,12 +499,13 @@ __Error:
     return ret;
 }
 
-//============================================================
 
+//============================================================
 int conver_mp4_to_flv(const char* src_url, const char* dst_url) {
 
-}
+    char* test = "xx";
 
+}
 
 
 
@@ -511,7 +526,7 @@ int main() {
     media_extra_video(VIDEO_PATH, VIDEO_OUTPUT_PATH);
 
     // 格式转换,mp4转成flv
-    conver_mp4_to_flv(VIDEO_PATH, FLV_OUTPUT_PATH);
+    //conver_mp4_to_flv(VIDEO_PATH, FLV_OUTPUT_PATH);
 
     return 0;
 }
