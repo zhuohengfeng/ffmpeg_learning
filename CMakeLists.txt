@@ -26,7 +26,8 @@ add_executable(ffmpeg_learning
         #main_format.cpp
         #main_codec.cpp
         #main_sdl.cpp
-        main_rtmp.cpp)
+        #main_rtmp.cpp
+        main_opencv.cpp)
 
 TARGET_LINK_LIBRARIES(ffmpeg_learning
         avcodec avdevice avfilter avformat avresample avutil postproc swresample swscale
