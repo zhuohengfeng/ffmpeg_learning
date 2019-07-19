@@ -24,6 +24,8 @@ extern "C"{
 #include <libavformat/version.h>
 #include <libavutil/mathematics.h>
 
+#include <libavutil/time.h>
+
 #ifdef __cplusplus
 }
 #endif
