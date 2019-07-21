@@ -44,7 +44,7 @@ int main() {
     VideoCapture camera;
 
     // 读取RTSP流，注意，这里打开流会有延时
-    bool result = camera.open(RTSP_ADD);
+    bool result = camera.open(0);
     Mat frame;
     // 像素格式转换上下文
     SwsContext* swsContext = NULL;
@@ -185,8 +185,8 @@ int main() {
                     continue;
                 }
                 // 显示窗口
-                imshow("show image", frame);
-                waitKey(1);//等待1毫米，并刷新
+//                imshow("show image", frame);
+//                waitKey(1);//等待1毫米，并刷新
 
                 // rgb to yuv --- 使用格式转换API sws_getCachedContext, 可以做大小和格式转换
                 // 输入的数据结构
@@ -211,6 +211,7 @@ int main() {
 
                 //////////////////h264编码//////////////////////////
                 // 发送原始数据
+                yuv->pkt_dts = vpts;
                 yuv->pts = vpts; // 注意这里要把pts递增，否则会出现non-strictly-monotonic PTS错误
                 vpts++;
                 ret = avcodec_send_frame(codecContext, yuv);
@@ -224,6 +225,9 @@ int main() {
                 }
 
                 ////////////////// 开始推流 //////////////////////////
+                // 对pts做一下转换
+                avPacke.pts =av_rescale_q(avPacke.pts, codecContext->time_base, outStream->time_base);
+
                 av_interleaved_write_frame(formatContext, &avPacke);
             }
         }

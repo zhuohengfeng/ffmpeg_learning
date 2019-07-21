@@ -23,6 +23,7 @@ extern "C"{
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 #include <libavdevice/avdevice.h>
 #include <libavformat/version.h>
 #include <libavutil/mathematics.h>
@@ -35,5 +36,12 @@ extern "C"{
 #endif
 
 
+#include <QtCore/QCoreApplication>
+#include <QAudioInput>
+#include <QDebug>
+#include <QMainWindow>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QThread>
 
 #endif /* main_h */

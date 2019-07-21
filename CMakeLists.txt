@@ -20,6 +20,20 @@ LINK_DIRECTORIES(${SDL_PATH}/lib)
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
+#--------------- QT5 ----------------------
+set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/Users/hengfeng/tools/Qt5.9.8/5.9.8/clang_64/lib/cmake")
+
+#打开Qt的MOC功能和UI文件处理功能
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+find_package(Qt5Core REQUIRED)
+find_package(Qt5Widgets REQUIRED)
+find_package(Qt5Sql REQUIRED)
+find_package(Qt5Multimedia REQUIRED)
+
+#--------------------------------------------
 
 add_executable(ffmpeg_learning
         #main_io.cpp
@@ -27,9 +41,11 @@ add_executable(ffmpeg_learning
         #main_codec.cpp
         #main_sdl.cpp
         #main_rtmp.cpp
-        main_opencv.cpp)
+        #main_opencv.cpp
+        main_qt_audio.cpp)
 
 TARGET_LINK_LIBRARIES(ffmpeg_learning
         avcodec avdevice avfilter avformat avresample avutil postproc swresample swscale
         ${OpenCV_LIBS}
+        Qt5::Core Qt5::Widgets Qt5::Sql Qt5::Multimedia
         SDL2)
